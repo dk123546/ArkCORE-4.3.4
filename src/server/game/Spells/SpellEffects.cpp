@@ -1563,7 +1563,7 @@ void Spell::EffectDummy (SpellEffIndex effIndex)
                         // use 99 because it is 3d search
                         SearchAreaTarget(unitList, 99, PUSH_DST_CENTER, SPELL_TARGETS_ENTRY, 33114);
                         float minDist = 99 * 99;
-                        Vehicle *target = NULL;
+                        Unit *target = NULL;
                         for (std::list<Unit*>::iterator itr = unitList.begin(); itr != unitList.end(); ++itr)
                         {
                             if (Vehicle *seat = (*itr)->GetVehicleKit())
@@ -1575,19 +1575,19 @@ void Spell::EffectDummy (SpellEffIndex effIndex)
                                             if (dist < minDist)
                                             {
                                                 minDist = dist;
-                                                target = seat;
+                                                target = (*itr);
                                             }
                                         }
                         }
-                        //if (target && target->GetBase()->IsWithinDist2d(&m_targets.m_dstPos, GetSpellRadius(m_spellInfo, effIndex, false) * 2))          // now we use *2 because the location of the seat is not correct
-                        //    passenger->EnterVehicle(target, 0);
-                        //else
-                        //{
-                        //    passenger->ExitVehicle();
-                        //    float x, y, z;
-                        //    m_targets.m_dstPos.GetPosition(x, y, z);
-                        //    passenger->GetMotionMaster()->MoveJump(x, y, z, m_targets.GetSpeedXY(), m_targets.GetSpeedZ());
-                        //}
+                        if (target && target->IsWithinDist2d(&m_targets.m_dstPos, m_spellInfo->GetSpellRadius(effIndex, false) * 2))          // now we use *2 because the location of the seat is not correct
+                            passenger->EnterVehicle(target, 0);
+                        else
+                        {
+                            passenger->ExitVehicle();
+                            float x, y, z;
+                            m_targets.m_dstPos.GetPosition(x, y, z);
+                            passenger->GetMotionMaster()->MoveJump(x, y, z, m_targets.GetSpeedXY(), m_targets.GetSpeedZ());
+                        }
                     }
             }
             return;
@@ -3954,7 +3954,7 @@ void Spell::EffectSummonType (SpellEffIndex effIndex)
     {
         float x, y, z;
         m_caster->GetClosePoint(x, y, z, DEFAULT_WORLD_OBJECT_SIZE);
-        summon = m_caster->GetMap()->SummonCreature(entry, pos, properties, duration, m_caster);
+        summon = m_originalCaster->GetMap()->SummonCreature(entry, pos, properties, duration, m_caster);
         if (!summon || !summon->IsVehicle())
             return;
 
@@ -3962,10 +3962,21 @@ void Spell::EffectSummonType (SpellEffIndex effIndex)
         {
             SpellInfo const *spellProto = sSpellMgr->GetSpellInfo(m_spellInfo->Effects[effIndex].CalcValue());
             if (spellProto)
-                m_caster->CastSpell(summon, spellProto, true);
+            {
+                 m_originalCaster->CastSpell(summon, spellProto, true);
+                 return;
+            }
         }
 
-        m_caster->EnterVehicle(summon->GetVehicleKit());
+       // Hard coded enter vehicle spell
+       m_originalCaster->CastSpell(summon, VEHICLE_SPELL_RIDE_HARDCODED, true);
+
+       summon->SetUInt32Value(UNIT_CREATED_BY_SPELL, m_spellInfo->Id);
+       uint32 faction = properties->Faction;
+       if (!faction)
+           faction = m_originalCaster->getFaction();
+
+        summon->setFaction(faction);
         break;
     }
     }
@@ -6225,7 +6236,7 @@ void Spell::EffectScriptEffect (SpellEffIndex effIndex)
                         oldContainer->DisappearAndDie();
                     // TODO: a hack, range = 11, should after some time cast, otherwise too far
                     m_caster->CastSpell(seat->GetBase(), 62496, true);
-                    unitTarget->EnterVehicle(seat, 1);
+                    unitTarget->EnterVehicle(m_caster, 1);
                 }
             }
             return;

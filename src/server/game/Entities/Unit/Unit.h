@@ -1823,6 +1823,7 @@ public:
     void RemoveArenaAuras (bool onleave = false);
     void RemoveAllAurasOnDeath ();
     void RemoveAllAurasRequiringDeadTarget ();
+    void RemoveAllAurasExceptVehicle();
     void DelayOwnedAuras (uint32 spellId, uint64 caster, int32 delaytime);
 
     void _RemoveAllAuraStatMods ();
@@ -2392,7 +2393,7 @@ public:
     }
 
     bool IsAIEnabled, NeedChangeAI;
-    bool CreateVehicleKit (uint32 id);
+    bool CreateVehicleKit (uint32 id, uint32 creatureEntry);
     void RemoveVehicleKit ();
     Vehicle *GetVehicleKit () const
     {
@@ -2437,13 +2438,14 @@ public:
     bool m_ControlledByPlayer;
 
     bool CheckPlayerCondition (Player* pPlayer);
-    void EnterVehicle (Unit *base, int8 seatId = -1, bool byAura = false)
-    {
-        EnterVehicle(base->GetVehicleKit(), seatId, byAura);
-    }
-    void EnterVehicle (Vehicle *vehicle, int8 seatId = -1, bool byAura = false);
-    void ExitVehicle ();
-    void ChangeSeat (int8 seatId, bool next = true, bool byAura = false);
+    bool HandleSpellClick(Unit* clicker, int8 seatId = -1);
+    void EnterVehicle(Unit *base, int8 seatId = -1);
+    void ExitVehicle(Position const* exitPosition = NULL);
+    void ChangeSeat (int8 seatId, bool next = true);
+
+    // Should only be called by AuraEffect::HandleAuraControlVehicle(AuraApplication const* auraApp, uint8 mode, bool apply) const;
+    void _ExitVehicle(Position const* exitPosition = NULL);
+    void _EnterVehicle(Vehicle* vehicle, int8 seatId, AuraApplication const* aurApp = NULL);
 
     void BuildMovementPacket (ByteBuffer *data) const;
 
@@ -2644,6 +2646,8 @@ private:
     bool HandleOverrideClassScriptAuraProc (Unit *pVictim, uint32 damage, AuraEffect* triggeredByAura, SpellInfo const *procSpell, uint32 cooldown);
     bool HandleAuraRaidProcFromChargeWithValue (AuraEffect* triggeredByAura);
     bool HandleAuraRaidProcFromCharge (AuraEffect* triggeredByAura);
+
+    void UpdateSplineMovement(uint32 t_diff);
 
     // player or player's pet
     float GetCombatRatingReduction (CombatRating cr) const;

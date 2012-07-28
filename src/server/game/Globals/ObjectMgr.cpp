@@ -288,53 +288,61 @@ LanguageDesc const* GetLanguageDescByID (uint32 lang)
     return NULL;
 }
 
-bool SpellClickInfo::IsFitToRequirements (Player const* player, Creature const * clickNpc) const
+bool SpellClickInfo::IsFitToRequirements(Unit const* clicker, Unit const* clickee) const
 {
-    if (questStart)
+    Player const* playerClicker = NULL;
+    if (playerClicker = clicker->ToPlayer())
     {
-        // not in expected required quest state
-        if (!player || ((!questStartCanActive || !player->IsActiveQuest(questStart)) && !player->GetQuestRewardStatus(questStart)))
-            return false;
-    }
+        if (questStart)
+        {
+            // not in expected required quest state
+            if (((!questStartCanActive || !playerClicker->IsActiveQuest(questStart)) && !playerClicker->GetQuestRewardStatus(questStart)))
+                return false;
+        }
 
-    if (questEnd)
-    {
-        // not in expected forbidden quest state
-        if (!player || player->GetQuestRewardStatus(questEnd))
-            return false;
+        if (questEnd)
+        {
+            // not in expected forbidden quest state
+            if (playerClicker->GetQuestRewardStatus(questEnd))
+                return false;
+        }
     }
 
     if (auraRequired)
-        if (!player->HasAura(auraRequired))
+        if (!clicker->HasAura(auraRequired))
             return false;
 
     if (auraForbidden)
-        if (player->HasAura(auraForbidden))
+        if (clicker->HasAura(auraForbidden))
             return false;
 
     Unit const * summoner = NULL;
     // Check summoners for party
-    if (clickNpc->isSummon())
-        summoner = clickNpc->ToTempSummon()->GetSummoner();
+    if (clickee->isSummon())
+        summoner = clickee->ToTempSummon()->GetSummoner();
     if (!summoner)
-        summoner = clickNpc;
+        summoner = clickee;
 
+    if (!playerClicker)
+        return true;
+
+    // This only applies to players
     switch (userType)
     {
-    case SPELL_CLICK_USER_FRIEND:
-        if (!player->IsFriendlyTo(summoner))
-            return false;
-        break;
-    case SPELL_CLICK_USER_RAID:
-        if (!player->IsInRaidWith(summoner))
-            return false;
-        break;
-    case SPELL_CLICK_USER_PARTY:
-        if (!player->IsInPartyWith(summoner))
-            return false;
-        break;
-    default:
-        break;
+        case SPELL_CLICK_USER_FRIEND:
+            if (!playerClicker->IsFriendlyTo(summoner))
+                return false;
+            break;
+        case SPELL_CLICK_USER_RAID:
+            if (!playerClicker->IsInRaidWith(summoner))
+                return false;
+            break;
+        case SPELL_CLICK_USER_PARTY:
+            if (!playerClicker->IsInPartyWith(summoner))
+                return false;
+            break;
+        default:
+            break;
     }
 
     return true;
@@ -783,12 +791,6 @@ void ObjectMgr::CheckCreatureTemplate (CreatureInfo const* cInfo)
 
     if (cInfo->rangeattacktime == 0)
         const_cast<CreatureInfo*>(cInfo)->rangeattacktime = BASE_ATTACK_TIME;
-
-    if (cInfo->npcflag & UNIT_NPC_FLAG_SPELLCLICK)
-    {
-        sLog->outErrorDb("Creature (Entry: %u) has dynamic flag UNIT_NPC_FLAG_SPELLCLICK (%u) set, it is expected to be set by code handling `npc_spellclick_spells` content.", cInfo->Entry, UNIT_NPC_FLAG_SPELLCLICK);
-        const_cast<CreatureInfo*>(cInfo)->npcflag &= ~UNIT_NPC_FLAG_SPELLCLICK;
-    }
 
     if ((cInfo->npcflag & UNIT_NPC_FLAG_TRAINER) && cInfo->trainer_type >= MAX_TRAINER_TYPE)
         sLog->outErrorDb("Creature (Entry: %u) has wrong trainer type %u.", cInfo->Entry, cInfo->trainer_type);
@@ -2765,7 +2767,7 @@ void ObjectMgr::LoadVehicleTemplateAccessories()
             continue;
         }
 
-        m_VehicleTemplateAccessoryMap[uiEntry].push_back(VehicleAccessory(uiAccessory, uiSeat, bMinion));
+        m_VehicleTemplateAccessoryMap[uiEntry].push_back(VehicleAccessory(uiAccessory, uiSeat, bMinion, uiSummonType, uiSummonTimer));
 
         ++count;
     }
@@ -2777,16 +2779,18 @@ void ObjectMgr::LoadVehicleTemplateAccessories()
 
 void ObjectMgr::LoadVehicleAccessories ()
 {
-    m_VehicleAccessoryMap.clear();          // needed for reload case
+    uint32 oldMSTime = getMSTime();
+
+    m_VehicleAccessoryMap.clear();                           // needed for reload case
 
     uint32 count = 0;
 
-    QueryResult result = WorldDatabase.Query("SELECT `guid`,`accessory_entry`,`seat_id`,`minion` FROM `vehicle_accessory`");
+    QueryResult result = WorldDatabase.Query("SELECT `guid`,`accessory_entry`,`seat_id`,`minion`,`summontype`,`summontimer` FROM `vehicle_accessory`");
 
     if (!result)
     {
-        sLog->outString();
         sLog->outErrorDb(">> Loaded 0 vehicle accessories. DB table `vehicle_accessory` is empty.");
+        sLog->outString();
         return;
     }
 
@@ -2798,6 +2802,8 @@ void ObjectMgr::LoadVehicleAccessories ()
         uint32 uiAccessory  = fields[1].GetUInt32();
         int8   uiSeat       = int8(fields[2].GetInt16());
         bool   bMinion      = fields[3].GetBool();
+        uint8  uiSummonType = fields[4].GetUInt8();
+        uint32 uiSummonTimer= fields[5].GetUInt32();
 
         if (!sCreatureStorage.LookupEntry<CreatureInfo>(uiAccessory))
         {
@@ -2805,55 +2811,14 @@ void ObjectMgr::LoadVehicleAccessories ()
             continue;
         }
 
-        m_VehicleAccessoryMap[uiGUID].push_back(VehicleAccessory(uiAccessory, uiSeat, bMinion));
+        m_VehicleAccessoryMap[uiGUID].push_back(VehicleAccessory(uiAccessory, uiSeat, bMinion, uiSummonType, uiSummonTimer));
 
         ++count;
     }
     while (result->NextRow());
 
+    sLog->outString(">> Loaded %u Vehicle Accessories in %u ms", count, GetMSTimeDiffToNow(oldMSTime));
     sLog->outString();
-    sLog->outString(">> Loaded %u Vehicle Accessories", count);
-}
-
-void ObjectMgr::LoadVehicleScaling ()
-{
-    m_VehicleScalingMap.clear();          // needed for reload case
-
-    uint32 count = 0;
-
-    QueryResult result = WorldDatabase.Query("SELECT `entry`, `baseItemLevel`, `scalingFactor` FROM `vehicle_scaling_info`");
-
-    if (!result)
-    {
-        sLog->outString();
-        sLog->outErrorDb(">> Loaded 0 vehicle scaling entries. DB table `vehicle_scaling_info` is empty.");
-        return;
-    }
-
-    do
-    {
-        Field *fields = result->Fetch();
-
-        uint32 vehicleEntry = fields[0].GetUInt32();
-        float baseItemLevel = fields[1].GetFloat();
-        float scalingFactor = fields[2].GetFloat();
-
-        if (!sVehicleStore.LookupEntry(vehicleEntry))
-        {
-            sLog->outErrorDb("Table `vehicle_scaling_info`: vehicle entry %u does not exist.", vehicleEntry);
-            continue;
-        }
-
-        m_VehicleScalingMap[vehicleEntry].ID = vehicleEntry;
-        m_VehicleScalingMap[vehicleEntry].baseItemLevel = baseItemLevel;
-        m_VehicleScalingMap[vehicleEntry].scalingFactor = scalingFactor;
-
-        ++count;
-    }
-    while (result->NextRow());
-
-    sLog->outString();
-    sLog->outString(">> Loaded %u vehicle scaling entries.", count);
 }
 
 void ObjectMgr::LoadPetLevelInfo ()
@@ -7313,9 +7278,6 @@ void ObjectMgr::LoadNPCSpellClickSpells ()
             continue;
         }
 
-        if (!(cInfo->npcflag & UNIT_NPC_FLAG_SPELLCLICK))
-            const_cast<CreatureInfo*>(cInfo)->npcflag |= UNIT_NPC_FLAG_SPELLCLICK;
-
         uint32 spellid = fields[1].GetUInt32();
         SpellInfo const *spellInfo = sSpellMgr->GetSpellInfo(spellid);
         if (!spellInfo)
@@ -7387,12 +7349,23 @@ void ObjectMgr::LoadNPCSpellClickSpells ()
         info.userType = SpellClickUserTypes(userType);
         mSpellClickInfoMap.insert(SpellClickInfoMap::value_type(npc_entry, info));
 
-        // mark creature template as spell clickable
-        const_cast<CreatureInfo*>(cInfo)->npcflag |= UNIT_NPC_FLAG_SPELLCLICK;
-
         ++count;
     }
     while (result->NextRow());
+
+    // all spellclick data loaded, now we check if there are creatures with NPC_FLAG_SPELLCLICK but with no data
+    // NOTE: It *CAN* be the other way around: no spellclick flag but with spellclick data, in case of creature-only vehicle accessories
+    for (uint32 i = 0; i < sCreatureStorage.MaxEntry; ++i)
+    {
+        if (CreatureInfo const* cInfo = GetCreatureTemplate(i))
+        {
+            if ((cInfo->npcflag & UNIT_NPC_FLAG_SPELLCLICK) && mSpellClickInfoMap.find(i) == mSpellClickInfoMap.end())
+            {
+                sLog->outErrorDb("npc_spellclick_spells: Creature template %u has UNIT_NPC_FLAG_SPELLCLICK but no data in spellclick table! Removing flag", i);
+                const_cast<CreatureInfo*>(cInfo)->npcflag &= ~UNIT_NPC_FLAG_SPELLCLICK;
+            }
+        }
+    }
 
     sLog->outString();
     sLog->outString(">> Loaded %u spellclick definitions", count);
@@ -9085,4 +9058,21 @@ void ObjectMgr::LoadFactionChangeReputations ()
 
     sLog->outString();
     sLog->outString(">> Loaded %u faction change reputation pairs.", counter);
+}
+
+VehicleAccessoryList const* ObjectMgr::GetVehicleAccessoryList(Vehicle* veh) const
+{
+    if (Creature* cre = veh->GetBase()->ToCreature())
+    {
+        // Give preference to GUID-based accessories
+        VehicleAccessoryContainer::const_iterator itr = m_VehicleAccessoryMap.find(cre->GetDBTableGUIDLow());
+        if (itr != m_VehicleAccessoryMap.end())
+            return &itr->second;
+    }
+
+    // Otherwise return entry-based
+    VehicleAccessoryContainer::const_iterator itr = m_VehicleTemplateAccessoryMap.find(veh->GetCreatureEntry());
+    if (itr != m_VehicleTemplateAccessoryMap.end())
+        return &itr->second;
+    return NULL;
 }

@@ -41,7 +41,7 @@
 #include "ObjectDefines.h"
 #include <ace/Singleton.h>
 #include "SQLStorage.h"
-#include "Vehicle.h"
+#include "VehicleDefines.h"
 #include <string>
 #include <map>
 #include <limits>
@@ -349,7 +349,7 @@ struct SpellClickInfo
     SpellClickUserTypes userType;
 
     // helpers
-    bool IsFitToRequirements (Player const* player, Creature const * clickNpc) const;
+    bool IsFitToRequirements (Unit const* clicker, Unit const * clickee) const;
 };
 
 typedef std::multimap<uint32, SpellClickInfo> SpellClickInfoMap;
@@ -864,30 +864,7 @@ public:
         return NULL;
     }
 
-    VehicleAccessoryList const* GetVehicleAccessoryList(Vehicle* veh) const
-    {
-        if (Creature* cre = veh->GetBase()->ToCreature())
-        {
-            // Give preference to GUID-based accessories
-            VehicleAccessoryMap::const_iterator itr = m_VehicleAccessoryMap.find(cre->GetDBTableGUIDLow());
-            if (itr != m_VehicleAccessoryMap.end())
-                return &itr->second;
-        }
-
-        // Otherwise return entry-based
-        VehicleAccessoryMap::const_iterator itr = m_VehicleTemplateAccessoryMap.find(veh->GetCreatureEntry());
-        if (itr != m_VehicleTemplateAccessoryMap.end())
-        return &itr->second;
-        return NULL;
-    }
-
-    VehicleScalingInfo const* GetVehicleScalingInfo(uint32 vehicleEntry) const
-    {
-        VehicleScalingMap::const_iterator itr = m_VehicleScalingMap.find(vehicleEntry);
-        if (itr != m_VehicleScalingMap.end())
-        return &itr->second;
-        return NULL;
-    }
+    VehicleAccessoryList const* GetVehicleAccessoryList(Vehicle* veh) const;
 
     DungeonEncounterList const* GetDungeonEncounterList(uint32 mapId, Difficulty difficulty)
     {
@@ -989,7 +966,6 @@ public:
     void LoadMailLevelRewards();
     void LoadVehicleTemplateAccessories();
     void LoadVehicleAccessories();
-    void LoadVehicleScaling();
 
     void LoadGossipText();
 
@@ -1398,9 +1374,8 @@ protected:
 
     ItemRequiredTargetMap m_ItemRequiredTarget;
 
-    VehicleAccessoryMap m_VehicleTemplateAccessoryMap;
-    VehicleAccessoryMap m_VehicleAccessoryMap;
-    VehicleScalingMap m_VehicleScalingMap;
+    VehicleAccessoryContainer m_VehicleTemplateAccessoryMap;
+    VehicleAccessoryContainer m_VehicleAccessoryMap;
 
     typedef std::vector<LocaleConstant> LocalForIndex;
     LocalForIndex m_LocalForIndex;
